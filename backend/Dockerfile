@@ -18,4 +18,4 @@ RUN chmod +x /docker-entrypoint.sh
 
 EXPOSE 8000
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["gunicorn", "backend.config.wsgi:application", "-b", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]
+CMD ["gunicorn", "config.wsgi:application", "-b", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]
