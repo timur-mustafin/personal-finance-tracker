@@ -1,7 +1,1 @@
-
-from django.contrib.auth.models import AbstractUser
-from django.db import models
-
-
-class CustomUser(AbstractUser):
-    pass  # Can be extended later
+# Using Django's default auth.User. No custom models here.

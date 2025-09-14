@@ -1,116 +1,104 @@
+from datetime import date
+from collections import defaultdict
 from django.conf import settings
-from ..transactions.models import Transaction, TransactionCategory
-from ..core.models import ExchangeRate, Budget
-from ..transactions.models import Transaction
-
+from django.db.models import Sum
+from django.db.models.functions import TruncMonth
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from transactions.models import Transaction
-from django.db.models import Sum
-from django.db.models.functions import TruncMonth
-from datetime import date
+from core.models import ExchangeRate, Budget, TransactionCategory
 
+def _rate_on_or_before(base: str, target: str, on_date):
+    return (ExchangeRate.objects
+            .filter(base=base, target=target, date__lte=on_date)
+            .order_by('-date')
+            .first())
+
+def convert_amount(amount, src: str, tgt: str, on_date):
+    if src == tgt:
+        return float(amount)
+    base = getattr(settings, 'BASE_CURRENCY', 'USD')
+    if src == base:
+        in_base = float(amount)
+    else:
+        r = _rate_on_or_before(base, src, on_date)
+        in_base = float(amount) if not r or float(r.rate) == 0.0 else float(amount) / float(r.rate)
+    if tgt == base:
+        return in_base
+    r2 = _rate_on_or_before(base, tgt, on_date)
+    return in_base if not r2 else in_base * float(r2.rate)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-
 def summary_by_month(request):
-    tgt = request.GET.get("currency")
-    base = getattr(settings,"BASE_CURRENCY","USD").upper()
-    # fetch transactions and accumulate per month with per-row conversion
-    from collections import defaultdict
-    rows = (Transaction.objects
-            .filter(user=request.user)
-            .values("amount","date","currency__code","currency_code"))
-    # currency_code fallback if currency FK absent
-    totals = defaultdict(float)
-    for row in rows:
-        on = row["date"]
-        amt = row["amount"]
-        txn_code = row.get("currency__code") or row.get("currency_code") or base
-        val = _convert_amount_by_date(amt, txn_code, on, tgt or base)
-        key = on.strftime("%Y-%m")
-        totals[key] += float(val)
-    data = [{"month": k, "total": round(v, 2), "currency": (tgt or base)} for k,v in sorted(totals.items())]
-    return Response(data)
+    target_currency = request.query_params.get('currency', getattr(settings, 'BASE_CURRENCY', 'USD'))
+    qs = (Transaction.objects
+          .filter(user=request.user)
+          .annotate(month=TruncMonth('date'))
+          .values('month','currency__code','category__is_income')
+          .annotate(total=Sum('amount'))
+          .order_by('month'))
+    buckets = defaultdict(lambda: {'income': 0.0, 'expense': 0.0})
+    for row in qs:
+        code = row['currency__code'] or getattr(settings, 'BASE_CURRENCY', 'USD')
+        val = convert_amount(row['total'], code, target_currency, row['month'] or date.today())
+        key = 'income' if row['category__is_income'] else 'expense'
+        buckets[row['month'].strftime('%Y-%m') if row['month'] else 'unknown'][key] += float(val)
+    out = [{'month': m, **vals, 'net': vals['income'] - vals['expense']} for m, vals in sorted(buckets.items())]
+    return Response(out)
 
-
-@api_view(["GET"])
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def top_categories(request):
+    target_currency = request.query_params.get('currency', getattr(settings, 'BASE_CURRENCY', 'USD'))
+    limit = int(request.query_params.get('limit', '5'))
+    qs = (Transaction.objects
+          .filter(user=request.user, category__is_income=False)
+          .values('category__name','currency__code','date')
+          .annotate(total=Sum('amount'))
+          .order_by('-total'))
+    agg = defaultdict(float)
+    for row in qs:
+        code = row['currency__code'] or getattr(settings, 'BASE_CURRENCY', 'USD')
+        val = convert_amount(row['total'], code, target_currency, row['date'] or date.today())
+        agg[row['category__name'] or 'Uncategorized'] += float(val)
+    items = sorted(agg.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return Response([{'category': k, 'total': v} for k, v in items])
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def budgets_summary(request):
-    import calendar
-    from datetime import date
-    tgt = request.GET.get("currency")
-    base = getattr(settings,"BASE_CURRENCY","USD").upper()
-    res = []
-    for b in Budget.objects.filter(user=request.user).order_by("-month"):
-        year = b.month.year; month = b.month.month
-        last_day = calendar.monthrange(year, month)[1]
-        start = date(year, month, 1)
-        end = date(year, month, last_day)
-        q = Transaction.objects.filter(user=request.user, date__gte=start, date__lte=end)
-        if b.category_id:
-            q = q.filter(category_id=b.category_id)
-        spent = 0.0
-        for r in q.values("amount","date","currency__code","currency_code"):
-            txn_code = r.get("currency__code") or r.get("currency_code") or base
-            spent += _convert_amount_by_date(r["amount"], txn_code, r["date"], tgt or base)
-        limit_conv = _convert_amount_by_date(b.amount_limit, base, end, tgt or base)
-        progress = float(spent) / float(limit_conv) if float(limit_conv) > 0 else 0.0
-        res.append({
-            "id": b.id,
-            "month": b.month.strftime("%Y-%m"),
-            "category": getattr(b.category, "title", "All categories"),
-            "limit": round(float(limit_conv), 2),
-            "spent": round(float(spent), 2),
-            "progress": round(progress, 4),
-            "currency": tgt or base
+    month = request.query_params.get('month')
+    target_currency = request.query_params.get('currency', getattr(settings, 'BASE_CURRENCY', 'USD'))
+    if not month:
+        today = date.today()
+        month = f"{today.year}-{today.month:02d}"
+    m_year, m_month = map(int, month.split('-'))
+    from datetime import date as _d
+    first_day = _d(m_year, m_month, 1)
+
+    tx = (Transaction.objects
+          .filter(user=request.user, date__year=m_year, date__month=m_month, category__is_income=False)
+          .values('category__id','category__name','currency__code','date')
+          .annotate(total=Sum('amount')))
+
+    spent = defaultdict(float)
+    for row in tx:
+        code = row['currency__code'] or getattr(settings, 'BASE_CURRENCY', 'USD')
+        spent[row['category__id']] += convert_amount(row['total'], code, target_currency, row['date'] or first_day)
+
+    budgets = (Budget.objects
+               .filter(user=request.user, month=first_day)
+               .select_related('category'))
+
+    out = []
+    for b in budgets:
+        s = float(spent.get(b.category_id, 0.0))
+        out.append({
+            'category': b.category.name,
+            'limit': float(b.limit_amount),
+            'spent': s,
+            'remaining': float(b.limit_amount) - s,
         })
-    return Response(res)
-
-
-from datetime import date
-
-def _get_rate_on_or_before(base_code, quote_code, on_date):
-    qs = (ExchangeRate.objects
-          .filter(base_code=base_code.upper(), quote_code=quote_code.upper(), date__lte=on_date)
-          .order_by("-date"))
-    return qs.first()
-
-def _convert_amount_by_date(amount, txn_code, on_date, target_code):
-    """Convert amount from txn_code to target_code using historical rates.
-    We only store rates for BASE->other. So:
-      - If txn_code == BASE and target == BASE: return amount
-      - txn->BASE: divide by rate(BASE->txn) on/on_before date
-      - BASE->target: multiply by rate(BASE->target) on/on_before date
-    If missing rate(s), fall back to passthrough.
-    """
-    base = getattr(settings, "BASE_CURRENCY", "USD").upper()
-    amt = float(amount or 0)
-    src = (txn_code or base).upper()
-    tgt = (target_code or base).upper()
-
-    # No-op cases
-    if src == tgt:
-        return amt
-
-    # First: get amount in BASE
-    if src == base:
-        in_base = amt
-    else:
-        r = _get_rate_on_or_before(base, src, on_date)
-        if not r or float(r.rate) == 0.0:
-            in_base = amt  # fallback
-        else:
-            in_base = amt / float(r.rate)
-
-    # Then: BASE -> target
-    if tgt == base:
-        return in_base
-    r2 = _get_rate_on_or_before(base, tgt, on_date)
-    if not r2:
-        return in_base  # fallback
-    return in_base * float(r2.rate)
-
+    return Response(out)
