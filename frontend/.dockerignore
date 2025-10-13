@@ -1,0 +1,25 @@
+# Exclude host-installed modules & build output
+node_modules
+dist
+build
+
+# Vite/React caches & logs
+.vite
+.cache
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local/dev files
+.DS_Store
+.vscode
+.idea
+
+# VCS
+.git
+.gitignore
+
+# Do not send the Dockerfile itself as context noise
+Dockerfile
+nginx.conf

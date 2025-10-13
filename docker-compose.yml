@@ -3,80 +3,126 @@ services:
     image: postgres:16
     container_name: pft_db
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-pft_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-finance}
+      POSTGRES_USER: ${POSTGRES_USER:-finance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finance}
     volumes:
-      - db_data:/var/lib/postgresql/data
+    - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-pft_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-    networks: [pftnet]
-
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${POSTGRES_USER:-finance}
+      interval: 2s
+      timeout: 2s
+      retries: 3
+      start_period: 5s
+    networks:
+    - pftnet
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: pft_redis
-    networks: [pftnet]
-
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 2s
+      timeout: 2s
+      retries: 3
+      start_period: 3s
+    networks:
+    - pftnet
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
     container_name: pft_backend
+    env_file:
+    - .env
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
-    env_file:
-      - .env
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings
-      POSTGRES_HOST: db
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
-    volumes:
-      - static_volume:/app/static
-      - media_volume:/app/media
+        condition: service_healthy
     ports:
-      - "8000:8000"
-    networks: [pftnet]
-
+    - 8000:8000
+    command:
+    - gunicorn
+    - config.wsgi:application
+    - --bind
+    - 0.0.0.0:8000
+    - --workers
+    - '3'
+    networks:
+    - pftnet
   worker:
     build:
       context: ./backend
     container_name: pft_worker
+    env_file:
+    - .env
     depends_on:
-      - backend
-      - redis
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
-    command: ["celery", "-A", "config", "worker", "-l", "info"]
-    networks: [pftnet]
-
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+    - celery
+    - -A
+    - config
+    - worker
+    - -l
+    - info
+    networks:
+    - pftnet
   beat:
     build:
       context: ./backend
     container_name: pft_beat
+    env_file:
+    - .env
     depends_on:
-      - backend
-      - redis
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
-    command: ["celery", "-A", "config", "beat", "-l", "info"]
-    networks: [pftnet]
-
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    command:
+    - celery
+    - -A
+    - config
+    - beat
+    - -l
+    - info
+    - --scheduler
+    - django_celery_beat.schedulers:DatabaseScheduler
+    networks:
+    - pftnet
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pft_frontend
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+    - 9080:80
+    networks:
+    - pftnet
+  frontend-build:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+    - ./frontend:/app
+    command:
+    - sh
+    - -c
+    - npm ci && npm run build
+    networks:
+    - pftnet
 volumes:
-  db_data:
-  static_volume:
-  media_volume:
-
+  db_data: {}
+  static_volume: {}
+  media_volume: {}
 networks:
   pftnet:
     driver: bridge
