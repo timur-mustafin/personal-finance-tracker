@@ -6,7 +6,8 @@ from decimal import Decimal
 import random
 import datetime
 
-from core.models import Currency, TransactionCategory, Transaction, Budget
+from core.models import Currency, TransactionCategory, Budget
+from transactions.models import Transaction  # <- Transaction lives in the transactions app
 
 class Command(BaseCommand):
     help = "Seed demo data: currencies, categories, budgets, and random transactions"
@@ -27,7 +28,7 @@ class Command(BaseCommand):
             user.set_password("admin")
             user.save(update_fields=["password"])
 
-        # Currencies
+        # Ensure basic seed exists (currencies & categories)
         currencies = [
             ("USD", "US Dollar", "$"),
             ("EUR", "Euro", "€"),
@@ -38,41 +39,44 @@ class Command(BaseCommand):
             c, _ = Currency.objects.get_or_create(code=code, defaults={"name": name, "symbol": sym})
             currency_map[code] = c
 
-        # Categories
         income_names = ["Salary", "Bonus", "Gift", "Interest"]
         expense_names = ["Groceries", "Rent", "Utilities", "Transport", "Dining", "Health", "Entertainment", "Shopping"]
         income = [TransactionCategory.objects.get_or_create(name=n, defaults={"is_income": True})[0] for n in income_names]
         expense = [TransactionCategory.objects.get_or_create(name=n, defaults={"is_income": False})[0] for n in expense_names]
 
-        # Budgets for expense categories (this and previous months)
+        # Prepare months list (first day of each month, including this one, going back N-1 months)
         today = timezone.now().date()
         first_of_this_month = today.replace(day=1)
         months_list = []
         cur = first_of_this_month
-        for i in range(months):
-            months_list.append(cur - datetime.timedelta(days=cur.day-1))  # ensure first of month
-            cur = (cur - datetime.timedelta(days=1)).replace(day=1)
+        for _ in range(months):
+            months_list.append(cur)
+            # move to previous month first day
+            prev = (cur - datetime.timedelta(days=1)).replace(day=1)
+            cur = prev
 
+        # Budgets for expense categories for each month
         for m in months_list:
             for cat in expense:
                 limit = random.randint(150, 900) * 1.0
                 Budget.objects.get_or_create(user=user, category=cat, month=m, defaults={"limit_amount": Decimal(f"{limit:.2f}")})
 
-        # Transactions
+        # Fresh transactions for the user (keep budgets)
         Transaction.objects.filter(user=user).delete()
+
         rng = random.Random(42)
         def rand_date_in_month(month_date):
             # month_date is first day of month
             if month_date.month == 12:
-                next_month = datetime.date(month_date.year+1,1,1)
+                next_month = datetime.date(month_date.year + 1, 1, 1)
             else:
-                next_month = datetime.date(month_date.year, month_date.month+1, 1)
+                next_month = datetime.date(month_date.year, month_date.month + 1, 1)
             delta_days = (next_month - month_date).days
             return month_date + datetime.timedelta(days=rng.randrange(delta_days))
 
         for m in months_list:
             # Incomes: 1-2 per month
-            for _ in range(rng.randint(1,2)):
+            for _ in range(rng.randint(1, 2)):
                 Transaction.objects.create(
                     user=user,
                     category=rng.choice(income),
@@ -83,8 +87,8 @@ class Command(BaseCommand):
                 )
 
             # Expenses
-            n = int(rng.normalvariate(tx_per_month, tx_per_month*0.2))
-            n = max(20, min(3*tx_per_month, n))
+            n = int(rng.normalvariate(tx_per_month, max(1, int(tx_per_month*0.2))))
+            n = max(20, min(3 * tx_per_month, n))
             for _ in range(n):
                 cat = rng.choice(expense)
                 base = {

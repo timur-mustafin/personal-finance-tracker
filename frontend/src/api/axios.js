@@ -2,7 +2,8 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api/',
+  // use relative URL so it works behind nginx on 9080 (and in any env)
+  baseURL: '/api/',
 })
 
 api.interceptors.request.use(
