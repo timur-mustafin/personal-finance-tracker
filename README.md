@@ -1,6 +1,13 @@
 # Personal Finance Tracker+
 
 
+## Preview
+
+![Dashboard Preview](./docs/dash.png)
+
+
+# Quick start
+
 ```bash
 docker compose build frontend
 docker compose up -d db redis backend worker beat frontend
