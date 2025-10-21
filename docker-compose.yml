@@ -1,3 +1,4 @@
+version: "3.9"
 services:
   db:
     image: postgres:16
@@ -7,122 +8,104 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-finance}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finance}
     volumes:
-    - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
     healthcheck:
-      test:
-      - CMD-SHELL
-      - pg_isready -U ${POSTGRES_USER:-finance}
-      interval: 2s
-      timeout: 2s
-      retries: 3
-      start_period: 5s
-    networks:
-    - pftnet
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finance}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [pftnet]
+
   redis:
     image: redis:7-alpine
     container_name: pft_redis
     healthcheck:
-      test:
-      - CMD
-      - redis-cli
-      - ping
-      interval: 2s
-      timeout: 2s
-      retries: 3
-      start_period: 3s
-    networks:
-    - pftnet
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [pftnet]
+
   backend:
     build:
       context: ./backend
+      dockerfile: Dockerfile
     container_name: pft_backend
-    env_file:
-    - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+      DEBUG: "False"
+      SECURE_SSL_REDIRECT: "False"
+      SECURE_HSTS_SECONDS: "0"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-    - 8000:8000
-    command:
-    - gunicorn
-    - config.wsgi:application
-    - --bind
-    - 0.0.0.0:8000
-    - --workers
-    - '3'
-    networks:
-    - pftnet
+    volumes:
+      - static_volume:/app/static
+      - media_volume:/app/media
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8000)); print('ok')\nPY"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [pftnet]
+
   worker:
     build:
       context: ./backend
+      dockerfile: Dockerfile
     container_name: pft_worker
-    env_file:
-    - .env
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command:
-    - celery
-    - -A
-    - config
-    - worker
-    - -l
-    - info
-    networks:
-    - pftnet
-  beat:
-    build:
-      context: ./backend
-    container_name: pft_beat
-    env_file:
-    - .env
+    command: ["celery", "-A", "config", "worker", "-l", "info"]
     depends_on:
       backend:
         condition: service_started
       redis:
         condition: service_healthy
-    command:
-    - celery
-    - -A
-    - config
-    - beat
-    - -l
-    - info
-    - --scheduler
-    - django_celery_beat.schedulers:DatabaseScheduler
-    networks:
-    - pftnet
-  frontend:
+    networks: [pftnet]
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pft_beat
+    command: ["celery", "-A", "config", "beat", "-l", "info"]
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks: [pftnet]
+
+  nginx:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-    container_name: pft_frontend
+    container_name: pft_nginx
     depends_on:
       backend:
         condition: service_started
     ports:
-    - 9080:80
-    networks:
-    - pftnet
-  frontend-build:
-    image: node:20-alpine
-    working_dir: /app
+      - "9080:80"
     volumes:
-    - ./frontend:/app
-    command:
-    - sh
-    - -c
-    - npm ci && npm run build
-    networks:
-    - pftnet
+      - static_volume:/var/www/static:ro
+      - media_volume:/var/www/media:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [pftnet]
+
 volumes:
   db_data: {}
   static_volume: {}
   media_volume: {}
+
 networks:
   pftnet:
     driver: bridge

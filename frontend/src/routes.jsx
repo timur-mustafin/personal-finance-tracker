@@ -2,6 +2,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
+import ImportExport from './pages/ImportExport';
 import Login from './pages/Login';
 
 const PrivateRoute = ({ children }) => {
@@ -15,7 +16,9 @@ export default function AppRoutes() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-      </Routes>
+        <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+  <Route path="/import-export" element={<PrivateRoute><ImportExport /></PrivateRoute>} />
+</Routes>
     </BrowserRouter>
   );
 }
