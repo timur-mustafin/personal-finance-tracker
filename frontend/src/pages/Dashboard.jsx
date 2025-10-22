@@ -227,21 +227,21 @@ export default function Dashboard() {
       <BudgetProgress items={budgetsData} />
 
       <section>
-        <h2 className="text-xl font-semibold mb-2">Monthly Summary</h2>
+        <h2 className="text-xl font-semibold mb-2">Monthly Summary <span className="ml-2 text-xs px-2 py-1 rounded bg-gray-100 border">{currency}</span></h2>
         <div className="h-64 bg-white shadow p-4 rounded">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={monthlyData}>
               <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="total" />
+              <YAxis tickFormatter={(v) => Number(v).toFixed(2)} />
+              <Tooltip formatter={(value) => Number(value).toFixed(2)} />
+              <Bar dataKey="total" fill="#8884d8" />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold mb-2">Top Spending Categories</h2>
+        <h2 className="text-xl font-semibold mb-2">Top Spending Categories <span className="ml-2 text-xs px-2 py-1 rounded bg-gray-100 border">{currency}</span></h2>
         <div className="h-64 bg-white shadow p-4 rounded">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
