@@ -24,7 +24,11 @@ docker compose exec backend python manage.py createsuperuser
 ```bash
 docker compose exec backend python manage.py seed_demo --user admin --months 3 --tx-per-month 60
 ```
+# Seed Fixed Currency (beat alt)
 
+```bash
+docker compose exec backend python manage.py seed_fx --days 90 --usd-eur 0.92 --usd-rsd 108.5
+```
 # Open the app
 Login - http://localhost:9080/login default admin creds from .env
 Dashboard - http://localhost:9080/ real-time analytics, CSV import/export

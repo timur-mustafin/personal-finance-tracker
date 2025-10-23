@@ -23,4 +23,11 @@ class Command(BaseCommand):
             ExchangeRate.objects.update_or_create(base="EUR", target="USD", date=d, defaults={"rate": 1.0/usd_eur})
             ExchangeRate.objects.update_or_create(base="USD", target="RSD", date=d, defaults={"rate": usd_rsd})
             ExchangeRate.objects.update_or_create(base="RSD", target="USD", date=d, defaults={"rate": 1.0/usd_rsd})
+            # Derived cross-rates for convenience
+            eur_rsd = usd_rsd / usd_eur if usd_eur else None
+            rsd_eur = usd_eur / usd_rsd if usd_rsd else None
+            if eur_rsd:
+                ExchangeRate.objects.update_or_create(base="EUR", target="RSD", date=d, defaults={"rate": eur_rsd})
+            if rsd_eur:
+                ExchangeRate.objects.update_or_create(base="RSD", target="EUR", date=d, defaults={"rate": rsd_eur})
         self.stdout.write(self.style.SUCCESS(f"Seeded FX for {days} day(s)."))

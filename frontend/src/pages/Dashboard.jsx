@@ -4,6 +4,7 @@ import api from '../api/axios';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import BudgetProgress from '../components/BudgetProgress';
 import CurrencySelector from '../components/CurrencySelector';
+import { fmt2 } from '../utils/format';
 
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#a4de6c'];
 
@@ -232,8 +233,8 @@ export default function Dashboard() {
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={monthlyData}>
               <XAxis dataKey="month" />
-              <YAxis tickFormatter={(v) => Number(v).toFixed(2)} />
-              <Tooltip formatter={(value) => Number(value).toFixed(2)} />
+              <YAxis tickFormatter={(v) => (currency === 'RSD' ? Number(v).toFixed(0) : fmt2(v))} />
+              <Tooltip formatter={(value) => fmt2(value)} />
               <Bar dataKey="total" fill="#8884d8" />
             </BarChart>
           </ResponsiveContainer>

@@ -13,11 +13,31 @@ from core.models import ExchangeRate, Budget, TransactionCategory
 def _get_rate(base: str, target: str, on_date):
     if base == target:
         return 1.0
+    # Try direct pair first
     obj = (ExchangeRate.objects
            .filter(base=base, target=target, date__lte=on_date)
            .order_by('-date')
            .first())
-    return obj.rate if obj else None
+    if obj:
+        return obj.rate
+    # Try pivot via BASE_CURRENCY (e.g., USD) if direct pair missing
+    pivot = getattr(settings, 'BASE_CURRENCY', 'USD')
+    if base != pivot and target != pivot:
+        obj1 = (ExchangeRate.objects
+                .filter(base=base, target=pivot, date__lte=on_date)
+                .order_by('-date')
+                .first())
+        obj2 = (ExchangeRate.objects
+                .filter(base=pivot, target=target, date__lte=on_date)
+                .order_by('-date')
+                .first())
+        if obj1 and obj2:
+            # Multiply to get cross rate
+            try:
+                return float(obj1.rate) * float(obj2.rate)
+            except Exception:
+                return None
+    return None
 
 
 def convert_amount(amount, base: str, target: str, on_date):
@@ -102,7 +122,9 @@ def budgets_summary(request):
     out = []
     for b in budgets:
         s = float(spent_map.get(b.category_id, 0.0))
-        limit = float(b.limit_amount)
+        base_cur = getattr(settings, 'BASE_CURRENCY', 'USD')
+        limit_raw = float(b.limit_amount)
+        limit = float(convert_amount(limit_raw, base_cur, target_currency, first_day))
         progress = (s / limit) if limit > 0 else 0.0
         out.append({
             'category': b.category.name,
