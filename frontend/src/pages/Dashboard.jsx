@@ -1,12 +1,20 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import BudgetProgress from '../components/BudgetProgress';
 import CurrencySelector from '../components/CurrencySelector';
+import BalanceWidget from '../components/BalanceWidget';
+import CategoryManager from '../components/CategoryManager';
+import TransactionForm from '../components/TransactionForm';
+import RecordsTable from '../components/RecordsTable';
+
 import { fmt2 } from '../utils/format';
+const DEFAULT_GRAY = '#9CA3AF';
 
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#a4de6c'];
+
+  
 
 /** Toast UI (same as before, with optional action button) */
 function Toast({ id, type = 'info', title, message, actionLabel, onAction, onClose }) {
@@ -58,6 +66,16 @@ function Toast({ id, type = 'info', title, message, actionLabel, onAction, onClo
 }
 
 export default function Dashboard() {
+  const [categories, setCategories] = useState([]);
+  useEffect(() => { (async () => { try { const r = await api.get('core/categories/'); setCategories(r.data || []); } catch(e) {} })(); }, []);
+
+  const colorByCategory = useMemo(() => {
+    const m = {};
+    for (const c of categories) m[c.name] = c.color || DEFAULT_GRAY;
+    m['Undefined'] = DEFAULT_GRAY;
+    return m;
+  }, [categories]);
+
   const [user, setUser] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [monthlyData, setMonthlyData] = useState([]);
@@ -225,7 +243,7 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <BudgetProgress items={budgetsData} />
+      <BudgetProgress items={budgetsData} colorsByCategory={colorByCategory} />
 
       <section>
         <h2 className="text-xl font-semibold mb-2">Monthly Summary <span className="ml-2 text-xs px-2 py-1 rounded bg-gray-100 border">{currency}</span></h2>
@@ -248,12 +266,23 @@ export default function Dashboard() {
             <PieChart>
               <Pie data={topCategories} dataKey="total" nameKey="category" outerRadius={80} label>
                 {topCategories.map((entry, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  <Cell key={i} fill={colorByCategory[entry.category] || DEFAULT_GRAY} />
                 ))}
               </Pie>
               <Tooltip />
             </PieChart>
           </ResponsiveContainer>
+        </div>
+      </section>
+      {/* Management Dashboard */}
+      <section className='grid grid-cols-1 lg:grid-cols-3 gap-4 mt-6'>
+        <div className='lg:col-span-1 space-y-4'>
+          <BalanceWidget />
+          <CategoryManager />
+        </div>
+        <div className='lg:col-span-2 space-y-4'>
+          <TransactionForm />
+          <RecordsTable />
         </div>
       </section>
     </div>

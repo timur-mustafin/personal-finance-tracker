@@ -113,3 +113,19 @@ class Command(BaseCommand):
                 )
 
         self.stdout.write(self.style.SUCCESS(f"Seeded demo data for user '{username}' across {months} months."))
+
+
+from django.utils import timezone
+from decimal import Decimal
+from core.models import Currency
+from transactions.models import Transaction, TransactionCategory
+
+def create_initial_balances(user):
+    income_cat, _ = TransactionCategory.objects.get_or_create(name="Initial Balance", is_income=True, defaults={'color':'#10B981'})
+    usd = Currency.objects.get(code="USD")
+    eur = Currency.objects.get(code="EUR")
+    rsd = Currency.objects.get(code="RSD")
+    today = timezone.now().date()
+    Transaction.objects.get_or_create(user=user, category=income_cat, currency=usd, amount=Decimal('1500.00'), description="Seed USD balance", date=today)
+    Transaction.objects.get_or_create(user=user, category=income_cat, currency=eur, amount=Decimal('800.00'), description="Seed EUR balance", date=today)
+    Transaction.objects.get_or_create(user=user, category=income_cat, currency=rsd, amount=Decimal('120000.00'), description="Seed RSD balance", date=today)

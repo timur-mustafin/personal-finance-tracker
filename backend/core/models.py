@@ -12,6 +12,7 @@ class Currency(models.Model):
 class TransactionCategory(models.Model):
     name = models.CharField(max_length=64)
     is_income = models.BooleanField(default=False)
+    color = models.CharField(max_length=7, default="#9CA3AF", help_text="Hex color like #RRGGBB")
 
     def __str__(self):
         return f"{self.name} ({'income' if self.is_income else 'expense'})"

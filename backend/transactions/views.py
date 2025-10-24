@@ -11,6 +11,8 @@ import io
 
 
 class TransactionViewSet(viewsets.ModelViewSet):
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
     serializer_class = TransactionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -88,3 +90,24 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 report["created"] += 1
 
         return Response(report, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'])
+    def balances(self, request):
+        """Return current balances by currency for the authenticated user.
+        Income categories add to balance, expense categories subtract.
+        """
+        from django.db.models import Sum, Case, When, F, DecimalField, Value as V
+        qs = self.get_queryset()
+        # Annotate sign based on category.is_income (null -> expense by default)
+        amounts = {}
+        for tx in qs.select_related('currency','category'):
+            code = tx.currency.code if tx.currency else 'N/A'
+            is_income = getattr(tx.category, 'is_income', False) if tx.category else False
+            signed = tx.amount if is_income else -tx.amount
+            amounts[code] = (amounts.get(code, 0) + float(signed))
+        # Format response
+        result = []
+        for code, total in sorted(amounts.items()):
+            result.append({ 'currency': code, 'balance': round(total, 2) })
+        return Response({ 'balances': result })
+
