@@ -16,9 +16,8 @@ export default function AppRoutes() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-        <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-  <Route path="/import-export" element={<PrivateRoute><ImportExport /></PrivateRoute>} />
-</Routes>
+        <Route path="/import-export" element={<PrivateRoute><ImportExport /></PrivateRoute>} />
+      </Routes>
     </BrowserRouter>
   );
 }
